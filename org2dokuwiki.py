@@ -34,7 +34,8 @@ def do_trans(input, output):
 
                 new = '%s %s %s\n' % (s, title, s)
             elif line.lower().startswith('#+begin_src'):
-                new = '<code>\n'
+                lang = line.split()[1]
+                new = '<code %s>\n' % (lang)
             elif line.lower().startswith('#+end_src'):
                 new = '</code>\n'
             elif line.lower().startswith('#+begin_example'):
