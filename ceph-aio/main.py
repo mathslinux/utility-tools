@@ -1,3 +1,5 @@
+#encoding: utf-8
+
 """
 ceph-aio: deploy ceph all in one
 usage:
@@ -7,11 +9,128 @@ usage:
 """
 
 import sys
+import os
 import argparse
+from ConfigParser import ConfigParser
+import uuid
+import struct
+import time
+import base64
+import commands
+
+# TODO: let user decides ceph_data
+# TODO: 解释为什么 ceph_data 一定要是这个
+ceph_data = '/var/lib/ceph'
+mon_data = os.path.join(ceph_data, 'mon/ceph-a')
+
+
+def get_ip(args):
+    """由于是单机版, 直接返回 lo 的地址
+    """
+    return '127.0.0.1'
+
+
+def pkg_install(args):
+    # TODO
+    pass
+
+
+# stole from ceph-deploy
+def generate_auth_key():
+    key = os.urandom(16)
+    header = struct.pack(
+        '<hiih',
+        1,                 # le16 type: CEPH_CRYPTO_AES
+        int(time.time()),  # le32 created: seconds
+        0,                 # le32 created: nanoseconds,
+        len(key),          # le16: len(key)
+    )
+    return base64.b64encode(header + key)
+
+
+def gen_config(args):
+    """生成配置文件 /etc/ceph/client.conf 和密钥文件 ceph.mon.keyring
+
+    配置文件如下:
+    [global]
+    auth service required = cephx
+    auth client required = cephx
+    auth cluster required = cephx
+    fsid = 7b9c5452-8599-48ac-b7cb-d7d6d36b53d2
+    mon initial members = a
+    mon host = 192.168.176.37
+    mon data = /root/ceph/mon/$cluster-$id
+    filestore xattr use omap = true
+    """
+    cfg = ConfigParser()
+    cfg.add_section('global')
+
+    # 认证设置, 没有什么好说的, 目前 ceph 仅仅支持 cephx 方式
+    cfg.set('global', 'auth service required', 'cephx')
+    cfg.set('global', 'auth client required', 'cephx')
+    cfg.set('global', 'auth cluster required', 'cephx')
+
+    # fsid
+    fsid = uuid.uuid4()
+    cfg.set('global', 'fsid', str(fsid))
+
+    # monitor 设置
+    # 由于是单机部署环境, 只有一个 monitor 成员, 这里把 monitor ID 设为 a,
+    # 设置 monitor member 的网络地址
+    cfg.set('global', 'mon initial members', 'a')
+    cfg.set('global', 'mon host', get_ip(args))
+    cfg.set('global', 'mon data', mon_data)
+
+    # OSD 设置, xfs 和 btrfs 需要 omap 选项
+    cfg.set('global', 'filestore xattr use omap', 'true')
+
+    try:
+        with file('/etc/ceph/ceph.conf', 'w') as f:
+            cfg.write(f)
+    except:
+        # TODO: log it
+        print 'write config error'
+        sys.exit()
+
+    try:
+        with file('/tmp/ceph.mon.keyring', 'w') as f:
+            f.write('[mon.]\nkey = %s\ncaps mon = allow *\n'
+                    % generate_auth_key())
+    except:
+        # TODO: log it
+        print 'write key file error'
+        sys.exit()
+
+
+def mon_install(args):
+    # 创建 monitor data
+    if not os.path.exists(mon_data):
+        os.makedirs(mon_data, mode=0700)
+    # sysvint 的 ceph 启动脚本需要在 mon data 下有一个文件 sysvint, 不然不能启动
+    open(os.path.join(mon_data, 'sysvinit'), 'w').close()
+
+    # 初始化 monitor data
+    cmd = 'ceph-mon --cluster ceph --mkfs -i a --keyring /tmp/ceph.mon.keyring'
+    (status, out) = commands.getstatusoutput(cmd)
+    if status != 0:
+        raise RuntimeError('failed to initialize the mon data directory!')
+
+    # 启动服务
+    cmd = 'service ceph -c /etc/ceph/ceph.conf start mon.a'
+    (status, out) = commands.getstatusoutput(cmd)
+    if status != 0:
+        raise RuntimeError('failed to start ceph monitor!')
+
+    # 如果 mon data 是自己设置的, 不是使用默认值, 那么使用一下命令手动获取
+    # client.admin keyring:
+    # ceph auth --name=mon. --keyring=/var/lib/ceph/mon/ceph-a/keyring \
+    # get-or-create client.admin mon 'allow *' osd 'allow *' mds 'allow *'
 
 
 def install(args):
-    pass
+    pkg_install(args)
+    gen_config(args)
+    mon_install(args)
 
 
 def clean(args):
