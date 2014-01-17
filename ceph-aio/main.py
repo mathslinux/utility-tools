@@ -17,6 +17,10 @@ import struct
 import time
 import base64
 import commands
+import logging
+import exc
+
+LOG = logging.getLogger(__name__)
 
 # TODO: let user decides ceph_data
 # TODO: 解释为什么 ceph_data 一定要是这个
@@ -84,38 +88,49 @@ def gen_config(args):
     # OSD 设置, xfs 和 btrfs 需要 omap 选项
     cfg.set('global', 'filestore xattr use omap', 'true')
 
+    LOG.debug('generating ceph config file /etc/ceph/ceph.conf')
     try:
         with file('/etc/ceph/ceph.conf', 'w') as f:
             cfg.write(f)
     except:
-        # TODO: log it
-        print 'write config error'
-        sys.exit()
+        raise RuntimeError('failed to create ceph config /etc/ceph/ceph.conf')
 
+    LOG.debug('generating monitor keyring file')
+    keyring = '/tmp/ceph.mon.keyring'
     try:
-        with file('/tmp/ceph.mon.keyring', 'w') as f:
+        with file(keyring, 'w') as f:
             f.write('[mon.]\nkey = %s\ncaps mon = allow *\n'
                     % generate_auth_key())
     except:
-        # TODO: log it
-        print 'write key file error'
-        sys.exit()
+        raise RuntimeError('failed to create keyring file %s' % (keyring))
 
 
 def mon_install(args):
+    """创建 monitor data 然后启动 monitor
+    分为三步:
+    1. 创建用户定义的 mon data, 并初始化这个目录
+    2. 启动 ceph mon
+    3. (可选) 如果用户定义了 mon data, 则必须手动获取 client.admin 的 keyring
+    """
+
     # 创建 monitor data
+    LOG.info('create mon data: %s', mon_data)
     if not os.path.exists(mon_data):
         os.makedirs(mon_data, mode=0700)
+
     # sysvint 的 ceph 启动脚本需要在 mon data 下有一个文件 sysvint, 不然不能启动
+    LOG.debug('touch file sysvinit needed by ceph sysvinit script')
     open(os.path.join(mon_data, 'sysvinit'), 'w').close()
 
     # 初始化 monitor data
+    LOG.debug('initial mon data')
     cmd = 'ceph-mon --cluster ceph --mkfs -i a --keyring /tmp/ceph.mon.keyring'
     (status, out) = commands.getstatusoutput(cmd)
     if status != 0:
         raise RuntimeError('failed to initialize the mon data directory!')
 
     # 启动服务
+    LOG.debug('start monitor service')
     cmd = 'service ceph -c /etc/ceph/ceph.conf start mon.a'
     (status, out) = commands.getstatusoutput(cmd)
     if status != 0:
@@ -166,6 +181,18 @@ def create_parser():
     return parser
 
 
+def set_logger():
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('[%(name)s] [%(levelname)s] %(message)s')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+
+@exc.catches((KeyboardInterrupt, RuntimeError, exc.GToolsError,))
 def main():
     parser = create_parser()
     if len(sys.argv) < 2:
@@ -173,5 +200,7 @@ def main():
         sys.exit()
     else:
         args = parser.parse_args()
+
+    set_logger()
 
     return args.func(args)
