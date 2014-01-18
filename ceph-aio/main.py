@@ -19,6 +19,7 @@ import base64
 import commands
 import logging
 import exc
+import shutil
 
 LOG = logging.getLogger(__name__)
 
@@ -115,8 +116,11 @@ def mon_install(args):
 
     # 创建 monitor data
     LOG.info('create mon data: %s', mon_data)
-    if not os.path.exists(mon_data):
-        os.makedirs(mon_data, mode=0700)
+    if os.path.exists(mon_data):
+        LOG.warn('mon data exists, delete it')
+        shutil.rmtree(mon_data)
+
+    os.makedirs(mon_data, mode=0700)
 
     # sysvint 的 ceph 启动脚本需要在 mon data 下有一个文件 sysvint, 不然不能启动
     LOG.debug('touch file sysvinit needed by ceph sysvinit script')
