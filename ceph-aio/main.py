@@ -189,26 +189,20 @@ def create_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description='Deploy ceph all in one\n\n',
         )
-    sub = parser.add_subparsers(
-        title='Commands',
-        metavar='COMMAND',
-        help='description',
+    parser.add_argument(
+        'subcommand',
+        metavar='SUBCOMMAND',
+        choices=[
+            'install',
+            'clean',
+            ],
+        help='install clean',
         )
-
-    # install command
-    p = sub.add_parser(
-        'install',
-        help='install ceph all in box'
-    )
-    p.set_defaults(func=install)
-
-    # clean command
-    p = sub.add_parser(
-        'clean',
-        help='clean ceph install by ceph-aio'
-    )
-    p.set_defaults(func=clean)
-
+    parser.add_argument(
+        '-d', '--data',
+        dest='mon_data',
+        help='ceph data, default: /var/lib/ceph',
+        )
     return parser
 
 
@@ -234,4 +228,7 @@ def main():
 
     set_logger()
 
-    return args.func(args)
+    if args.subcommand == 'install':
+        install(args)
+    elif args.subcommand == 'clean':
+        clean(args)
