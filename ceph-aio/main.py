@@ -161,8 +161,26 @@ def install(args):
     mon_install(args)
 
 
+def mon_clean(args):
+    # 先结束 ceph 服务的运行
+    do_cmd('service ceph -c /etc/ceph/ceph.conf stop mon.a')
+
+    # 删除 mon data
+    if os.path.exists(mon_data):
+        LOG.debug('delete mon data: %s', mon_data)
+        shutil.rmtree(mon_data)
+    else:
+        LOG.warn('mon data %s not exists', mon_data)
+
+    # 删除配置文件和 client.admin keyring
+    if os.path.exists('/etc/ceph/ceph.conf'):
+        os.remove('/etc/ceph/ceph.conf')
+    if os.path.exists('/etc/ceph/ceph.client.admin.keyring'):
+        os.remove('/etc/ceph/ceph.client.admin.keyring')
+
+
 def clean(args):
-    pass
+    mon_clean(args)
 
 
 def create_parser():
