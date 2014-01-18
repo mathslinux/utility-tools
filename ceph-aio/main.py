@@ -106,6 +106,17 @@ def gen_config(args):
         raise RuntimeError('failed to create keyring file %s' % (keyring))
 
 
+def do_cmd(cmd):
+    LOG.debug('execute command: "%s"', cmd)
+    (status, out) = commands.getstatusoutput(cmd)
+    for i in out.split('\n'):
+        if status == 0:
+            LOG.debug(i)
+        else:
+            LOG.error(i)
+    return status
+
+
 def mon_install(args):
     """创建 monitor data 然后启动 monitor
     分为三步:
@@ -129,15 +140,13 @@ def mon_install(args):
     # 初始化 monitor data
     LOG.debug('initial mon data')
     cmd = 'ceph-mon --cluster ceph --mkfs -i a --keyring /tmp/ceph.mon.keyring'
-    (status, out) = commands.getstatusoutput(cmd)
-    if status != 0:
+    if do_cmd(cmd) != 0:
         raise RuntimeError('failed to initialize the mon data directory!')
 
     # 启动服务
     LOG.debug('start monitor service')
     cmd = 'service ceph -c /etc/ceph/ceph.conf start mon.a'
-    (status, out) = commands.getstatusoutput(cmd)
-    if status != 0:
+    if do_cmd(cmd) != 0:
         raise RuntimeError('failed to start ceph monitor!')
 
     # 如果 mon data 是自己设置的, 不是使用默认值, 那么使用一下命令手动获取
