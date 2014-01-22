@@ -237,11 +237,15 @@ def mon_clean(args):
     else:
         LOG.warn('mon data %s not exists', mon_data)
 
-    # 删除配置文件和 client.admin keyring
+    # 删除配置文件和各种 keyring
     if os.path.exists('/etc/ceph/ceph.conf'):
         os.remove('/etc/ceph/ceph.conf')
     if os.path.exists('/etc/ceph/ceph.client.admin.keyring'):
         os.remove('/etc/ceph/ceph.client.admin.keyring')
+    if os.path.exists('/var/lib/ceph/bootstrap-mds/ceph.keyring'):
+        os.remove('/var/lib/ceph/bootstrap-mds/ceph.keyring')
+    if os.path.exists('/var/lib/ceph/bootstrap-osd/ceph.keyring'):
+        os.remove('/var/lib/ceph/bootstrap-osd/ceph.keyring')
 
 
 def clean(args):
