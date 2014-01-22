@@ -27,6 +27,7 @@ LOG = logging.getLogger(__name__)
 # TODO: 解释为什么 ceph_data 一定要是这个
 ceph_data = '/var/lib/ceph'
 mon_data = os.path.join(ceph_data, 'mon/ceph-a')
+osd_data = os.path.join(ceph_data, 'osd')
 
 
 def get_ip(args):
@@ -155,10 +156,74 @@ def mon_install(args):
     # get-or-create client.admin mon 'allow *' osd 'allow *' mds 'allow *'
 
 
+def osd_install(args):
+    """创建并启动 osd data 然后启动
+    分为三步:
+    1. 用 ceph osd create [uuid] 创建 osd
+    2. 用 ceph-osd 初始化 osd data
+    3. 创建 osd 的认证信息
+
+    这里, 我创建4个 osd 服务.
+    """
+    for i in range(4):
+        data = os.path.join(osd_data, 'ceph-%d' % (i))
+
+        # 准备 osd data
+        LOG.debug('create osd data: %s', data)
+        if os.path.exists(data):
+            LOG.warn('osd data exists, delete it')
+            shutil.rmtree(data)
+        os.makedirs(data, mode=0700)
+
+        # 创建 osd
+        LOG.debug('create osd')
+        ret, out = do_cmd('ceph osd create %s' % (str(uuid.uuid4())))
+        if ret != 0:
+            raise RuntimeError('failed to create osd: %s' % (out))
+        osd_id = out
+        LOG.debug('osd.%s is created', osd_id)
+
+        # 初始化 osd data
+        LOG.debug('inital osd data')
+        do_cmd('ceph mon getmap -o /tmp/ceph.mon')
+        cmd = ('ceph-osd -i {osd_id} --mkfs --mkkey --monmap {monmap} '
+               '--osd-data {osd_data} --osd-journal {journal} '
+               '--osd-uuid {osd_uuid} --keyring {keyring}'.format(
+                   osd_id=osd_id,
+                   monmap='/tmp/ceph.mon',
+                   osd_data=data,
+                   journal=os.path.join(data, 'journal'),
+                   osd_uuid=str(uuid.uuid4()),
+                   keyring=os.path.join(data, 'keyring')
+               ))
+        ret, out = do_cmd(cmd)
+        if ret != 0:
+            raise RuntimeError('failed to initial osd.%s' % (osd_id))
+
+        # 创建 osd 的认证信息
+        cmd = ("ceph --name client.bootstrap-osd --keyring {boot_keyring} "
+               "auth add osd.{osd_id} -i {keyring} "
+               "osd 'allow *' mon 'allow profile osd'".format(
+                   boot_keyring=os.path.join(ceph_data, 'bootstrap-osd/ceph.keyring'),
+                   osd_id=osd_id,
+                   keyring=os.path.join(data, 'keyring')
+               ))
+        ret, out = do_cmd(cmd)
+        if ret != 0:
+            LOG.warn('failed to register osd auth: %s', out)
+
+        # 为 sysvinit 的service 创建服务
+        do_cmd('touch %s' % (os.path.join(data, 'sysvinit')))
+
+        # 启动服务
+        do_cmd('service ceph start osd.{osd_id}'.format(osd_id=osd_id))
+
+
 def install(args):
     pkg_install(args)
     gen_config(args)
     mon_install(args)
+    osd_install(args)
 
 
 def mon_clean(args):
