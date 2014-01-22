@@ -226,7 +226,9 @@ def install(args):
     osd_install(args)
 
 
+# monitor 要最后删除, 不然 osd 和 mds 都不能删除了 :P
 def mon_clean(args):
+    LOG.debug('clean ceph monitor')
     # 先结束 ceph 服务的运行
     do_cmd('service ceph -c /etc/ceph/ceph.conf stop mon.a')
 
@@ -248,7 +250,33 @@ def mon_clean(args):
         os.remove('/var/lib/ceph/bootstrap-osd/ceph.keyring')
 
 
+def osd_clean(args):
+    # 根据 ceph 的官方文档, 删除 osd 需要以下步奏:
+    # 1) 把 待删除的 osd 标记为 out:    ceph ceph osd out {osd_id}
+    # 2) 结束 ceph osd 的运行:        service ceph stop osd.{osd_id}
+    # 3) 把 osd 从 crush 里面删除:    ceph osd crush remove osd.0
+    # 4) 删除 osd 的认证信息:         ceph auth del osd.0
+    # 5) 删除 osd:                 ceph osd rm 0
+    LOG.debug('clean ceph osd')
+    for osd_id in range(4):
+        do_cmd('ceph osd out {id}'.format(id=osd_id))
+        do_cmd('service ceph stop osd.{id}'.format(id=osd_id))
+        do_cmd('ceph osd crush remove osd.{id}'.format(id=osd_id))
+        do_cmd('ceph auth del osd.{id}'.format(id=osd_id))
+        do_cmd('ceph osd rm {id}'.format(id=osd_id))
+
+        # 删除 mon data
+        data = os.path.join(osd_data, 'ceph-{id}'.format(id=osd_id))
+        if os.path.exists(data):
+            LOG.debug('delete mon data: %s', data)
+            shutil.rmtree(data)
+        else:
+            LOG.warn('osd data %s not exists', data)
+
+
 def clean(args):
+    LOG.debug('clean ceph')
+    osd_clean(args)
     mon_clean(args)
 
 
